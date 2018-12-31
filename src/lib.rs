@@ -2,6 +2,7 @@ extern crate num_traits;
 extern crate rand;
 
 use num_traits::{Zero,zero,Signed};
+use num_traits::cast::{FromPrimitive,ToPrimitive,NumCast};
 use std::ops::{Add,AddAssign,Sub,SubAssign,Mul};
 use std::convert::From;
 use std::mem::swap;
@@ -66,10 +67,9 @@ impl<K: Zero,V> STNode<K,V> {
 
 impl<K,V> WeightBalancedSearchTree<K,V>
     where
-        K: PartialOrd + Sub<K,Output=K> + Add<K,Output=K> + AddAssign<K> + SubAssign<K> + From<f64> + Zero + Signed + Copy + Debug,
-        V: Debug,
+        K: PartialOrd + Sub<K,Output=K> + Add<K,Output=K> + AddAssign<K> + SubAssign<K> + ToPrimitive + NumCast + Zero + Signed + Copy + Debug,
+        V: Debug + Copy,
         Standard: Distribution<K>,
-        f64: From<K>,
 {
 
     pub fn index_tree(weights:Vec<K>) -> WeightBalancedSearchTree<K,usize> {
@@ -585,6 +585,28 @@ impl<K,V> WeightBalancedSearchTree<K,V>
         else {vec![]}
     }
 
+    pub fn descend_index(&self,k:K) -> usize {
+        let mut current = self.root;
+        let mut next = Some(self.root);
+        let mut cumulative: K = zero();
+        while let Some(index) = next {
+            let STNode{key,left,right,left_sum,right_sum,..} = self.arena[index];
+            let current = index;
+            if k <= cumulative + left_sum {
+                 next = left
+            }
+            else if k > (cumulative + left_sum + key) {
+                cumulative += left_sum + key;
+                next = right
+            }
+            else {
+                break
+            }
+        }
+        current
+    }
+
+
     pub fn remove(&mut self,index:usize) -> Option<(K,V)> {
         // eprintln!("Removing {:?}",index);
 
@@ -625,8 +647,8 @@ impl<K,V> WeightBalancedSearchTree<K,V>
     }
 
     pub fn draw(&mut self) -> Option<(K,V)> {
-        let draw: f64 = f64::from(self.sum()) * random::<f64>();
-        self.draw_specified(K::from(draw))
+        let draw: f64 = <f64 as NumCast>::from(self.sum()).unwrap() * random::<f64>();
+        self.draw_specified(K::from(draw).unwrap())
     }
 
     pub fn draw_specified(&mut self,draw:K) -> Option<(K,V)> {
@@ -635,14 +657,92 @@ impl<K,V> WeightBalancedSearchTree<K,V>
         self.remove(path.first().map(|x| x.1).unwrap())
     }
 
+    pub fn draw_replace(&mut self) -> Option<(K,V)> {
+        let draw: f64 = <f64 as NumCast>::from(self.sum()).unwrap() * random::<f64>();
+        self.draw_replace_specified(K::from(draw).unwrap())
+    }
+
+    pub fn draw_replace_specified(&mut self,draw:K) -> Option<(K,V)> {
+        let index = self.descend_index(draw);
+        self.arena.get(index).map(|STNode{key,value,..}| (*key,*value))
+    }
+
 }
 
 
 
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn it_works() {
-        assert_eq!(2 + 2, 4);
+
+    use super::*;
+    use rand::{thread_rng,Rng};
+
+    trait ValidKey: PartialOrd + Sub<Self,Output=Self> + Add<Self,Output=Self> + AddAssign<Self> + SubAssign<Self> + NumCast + ToPrimitive + Zero + Signed + Copy + Debug {}
+
+    impl ValidKey for f64 {}
+    impl ValidKey for i32 {}
+
+    pub fn test_vec_f64() -> Vec<f64> {
+        vec![10.,3.,4.,1.,0.,1.,0.5]
     }
+
+    pub fn test_vec_usize() -> Vec<usize> {
+        vec![5,3,7,4,10,0,0,0,1]
+    }
+
+    pub fn test_vec_repetitive() -> Vec<i32> {
+        vec![1,1,1,1,1,1,1,1]
+    }
+
+    pub fn test_vec_empty() -> Vec<i32> {
+        vec![]
+    }
+
+    pub fn test_vec_zero() -> Vec<i32> {
+        vec![0,0,0,0,0,0]
+    }
+
+    pub fn test_vec_large_random_f64() -> Vec<f64> {
+        let mut rng = thread_rng();
+        (0..10000).map(|_| rng.gen::<f64>()).collect()
+    }
+
+    pub fn test_vec_large_random_i32() -> Vec<i32> {
+        let mut rng = thread_rng();
+        (0..10000).map(|_| rng.gen::<i32>()).collect()
+    }
+
+    fn test_vec<K: ValidKey>(test_vec:Vec<K>)
+    where
+        Standard: Distribution<K>
+    {
+        let mut tree = WeightBalancedSearchTree::<K,usize>::index_tree(test_vec.clone());
+
+        for _ in test_vec {
+            eprintln!("{:?}",tree.draw());
+        }
+    }
+
+    #[test]
+    pub fn test_all() {
+        let a = test_vec_f64();
+        // let b = test_vec_usize();
+        let c = test_vec_repetitive();
+        let d = test_vec_empty();
+        let e = test_vec_zero();
+        let f = test_vec_large_random_f64();
+        let g = test_vec_large_random_i32();
+
+        test_vec(a);
+        // test_vec(b);
+        test_vec(c);
+        test_vec(d);
+        test_vec(e);
+        test_vec(f);
+        test_vec(g);
+
+    }
+
+
+
 }
