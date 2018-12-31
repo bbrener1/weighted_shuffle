@@ -1,0 +1,8 @@
+[package]
+name = "weighted_sampling"
+version = "0.1.0"
+authors = ["boris"]
+
+[dependencies]
+num-traits = "0.2"
+rand = "0.6"
