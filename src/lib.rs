@@ -13,7 +13,7 @@ use rand::distributions::{Distribution,Standard};
 
 #[derive(Debug)]
 pub struct WeightBalancedSearchTree<K,V> {
-    root: usize,
+    root: Option<usize>,
     arena: Vec<STNode<K,V>>,
     indecies: Vec<usize>,
 }
@@ -79,12 +79,15 @@ impl<K,V> WeightBalancedSearchTree<K,V>
             // eprintln!("{:?}",tree);
             tree.insert(k, v)
         }
+        tree.check_integrity();
+        tree.balance_weight();
         tree
+
     }
 
     pub fn empty() -> WeightBalancedSearchTree<K,V> {
         WeightBalancedSearchTree{
-            root:0,
+            root:None,
             arena:vec![],
             indecies: vec![],
         }
@@ -107,6 +110,9 @@ impl<K,V> WeightBalancedSearchTree<K,V>
                 self.arena[new_index].parent = Some((false,i));
             }
         }
+        else {
+            self.root = Some(new_index)
+        }
     }
 
     pub fn insert_value_at(&mut self,k:K,v:V,index:usize) {
@@ -126,6 +132,13 @@ impl<K,V> WeightBalancedSearchTree<K,V>
                 self.arena[new_index].parent = Some((false,i));
             }
         }
+        else {
+            self.root = Some(new_index)
+        }
+    }
+
+    pub fn reinsert_node(&mut self, node:usize) {
+        self.reinsert_node_at(node,None);
     }
 
     pub fn reinsert_node_at(&mut self,node:usize,insert_index:Option<usize>) {
@@ -145,12 +158,47 @@ impl<K,V> WeightBalancedSearchTree<K,V>
             }
         }
         else {
-            self.root = node;
+            self.root = Some(node);
             self.arena[node].parent = None;
         }
     }
 
     pub fn unchecked_switch(&mut self,a:usize,b:usize) {
+        //
+        // eprintln!("a:{:?}",self.arena[a]);
+        // eprintln!("b:{:?}",self.arena[b]);
+
+        // let ap = self.arena[a].parent;
+        // let bp = self.arena[b].parent;
+        // let al = self.arena[a].left;
+        // let ar = self.arena[a].right;
+        // let bl = self.arena[b].left;
+        // let br = self.arena[b].right;
+        //
+        // self.unlink(a);
+        // self.unlink(b);
+        //
+        // self.link(ap,Some(b));
+        // self.link(bp,Some(a));
+        //
+        // self.link(Some((false,b)),al);
+        // self.link(Some((true,b)),ar);
+        //
+        // self.link(Some((false,a)),bl);
+        // self.link(Some((true,a)),br);
+        //
+        // self.arena.swap(a,b);
+        // self.indecies.swap(a,b);
+        //
+        // self.establish_node_sums(a);
+        // self.establish_node_sums(b);
+        //
+        // if let Some((_,api)) = ap {
+        //     self.establish_node_sums(api);
+        // }
+        // if let Some((_,bpi)) = bp {
+        //     self.establish_node_sums(bpi);
+        // }
         //
         // eprintln!("a:{:?}",self.arena[a]);
         // eprintln!("b:{:?}",self.arena[b]);
@@ -171,7 +219,7 @@ impl<K,V> WeightBalancedSearchTree<K,V>
             }
         }
         else {
-            self.root = b;
+            self.root = Some(b);
         }
         //
         // eprintln!("a:{:?}",self.arena[a]);
@@ -202,7 +250,7 @@ impl<K,V> WeightBalancedSearchTree<K,V>
             }
         }
         else {
-            self.root = a
+            self.root = Some(a)
         }
         // eprintln!("a:{:?}",self.arena[a]);
         // eprintln!("b:{:?}",self.arena[b]);
@@ -213,6 +261,7 @@ impl<K,V> WeightBalancedSearchTree<K,V>
         // eprintln!("a:{:?}",self.arena[a]);
         // eprintln!("b:{:?}",self.arena[b]);
     }
+
 
     pub fn send_to_back(&mut self,index:usize) -> usize {
         // eprintln!("Sending");
@@ -242,7 +291,7 @@ impl<K,V> WeightBalancedSearchTree<K,V>
     }
 
     pub fn key_path(&self,k:&K) -> Vec<(Option<bool>,usize)> {
-        self.key_path_at(if self.arena.len() > 0 {Some(self.root)} else {None},k,0)
+        self.key_path_at(self.root,k,0)
     }
 
     pub fn key_path_at(&self,index_opt:Option<usize>, k:&K, depth: usize) -> Vec<(Option<bool>,usize)> {
@@ -293,59 +342,137 @@ impl<K,V> WeightBalancedSearchTree<K,V>
     }
 
     pub fn unlink(&mut self,index:usize) {
-        if let Some(parent) = self.arena[index].parent {
-            if parent.0 {
-                self.arena[parent.1].right = None;
+        if let Some((pb,pi)) = self.arena[index].parent {
+            if pb {
+                self.arena[pi].right = None;
+                self.establish_node_sums(pi);
             }
             else {
-                self.arena[parent.1].left = None;
+                self.arena[pi].left = None;
+                self.establish_node_sums(pi);
             }
+        }
+        self.arena[index].parent = None;
+    }
+
+    pub fn link(&mut self, parent:Option<(bool,usize)>,child:Option<usize>) {
+        // eprintln!("Linking:{:?},{:?}",parent,child);
+        if let Some((pb,pi)) = parent {
+            if pb {
+                self.arena[pi].right = child;
+            }
+            else {
+                self.arena[pi].left = child;
+            }
+            self.establish_node_sums(pi);
+            // eprintln!("Linked:{:?}",self.arena[pi]);
+        }
+        else {
+            self.root = child;
+        }
+        if let Some(ci) = child {
+            self.arena[ci].parent = parent;
+            // eprintln!("Linked:{:?}",self.arena[ci]);
         }
     }
 
     pub fn new_root(&mut self,k:K,v:V) {
-        assert!(self.arena.len() < 1);
-        assert!(self.root == 0);
+        self.root = Some(self.arena.len());
         let new_node = STNode::new(k,v);
         self.arena.push(new_node);
     }
 
     pub fn unchecked_rotate_right(&mut self,index:usize) {
+
         // eprintln!("Rotating right: {:?}",index);
 
-        let pivot: usize = self.arena[index].left.unwrap();
+        let STNode{key:index_key,left:index_left,right:index_right,parent:index_parent,..} = self.arena[index];
+        let pivot = index_left.unwrap();
+        let pivot_right = self.arena[pivot].right;
+        let pivot_left = self.arena[pivot].left;
 
+        // eprintln!("I{:?}:{:?}",index,self.arena[index]);
+        // eprintln!("P{:?}:{:?}",pivot,self.arena[pivot]);
+
+
+        self.unlink(index);
+        self.unlink(pivot);
+        if let Some(pli) = pivot_left {
+            self.unlink(pli);
+        }
+        if let Some(pri) = pivot_right {
+            self.unlink(pri);
+        }
+
+        self.arena.swap(index,pivot);
+        self.indecies.swap(index,pivot);
+
+        self.link(Some((false,pivot)),pivot_right);
+        self.link(Some((true,pivot)),index_right);
+        self.link(Some((false,index)),pivot_left);
+        self.link(Some((true,index)),Some(pivot));
+        self.link(index_parent,Some(index));
+
+
+        // eprintln!("I{:?}:{:?}",index,self.arena[index]);
+        // eprintln!("P{:?}:{:?}",pivot,self.arena[pivot]);
+
+        //
+        // self.arena.swap(index,pivot);
+        // self.indecies.swap(index,pivot);
+        //
+        // self.arena[pivot].parent = Some((true,index));
+        // self.arena[pivot].left = baton;
+        // self.arena[pivot].left_sum = self.node_sum(baton);
+        //
+        // self.arena[index].parent = index_parent;
+        // self.arena[index].right = Some(pivot);
+        // self.arena[index].right_sum = self.node_sum(Some(pivot));
+        //
+        // if let Some(bi) = baton {
+        //     self.arena[bi].parent = Some((false,pivot))
+        // }
+        // if let Some(iri) = index_right {
+        //     self.arena[iri].parent = Some((true,pivot))
+        // }
+        // if let Some(pli) = self.arena[pivot].left {
+        //     self.arena[pli].parent = Some((false,index))
+        // }
+
+        //
+        // let pivot: usize = self.arena[index].left.unwrap();
+        //
         // eprintln!("I:{:?}",self.arena[index]);
         // eprintln!("P:{:?}",self.arena[pivot]);
-
-        self.arena[pivot].parent = self.arena[index].parent;
-        let baton = self.arena[pivot].right;
-        self.arena[pivot].right = Some(index);
-
-        self.arena[index].parent = Some((true,pivot));
-        self.arena[index].left = baton;
-
-        self.arena[index].left_sum = self.node_sum(baton);
-        self.arena[pivot].right_sum = self.node_sum(Some(index));
-
-        if let Some(bi) = baton {
-            self.arena[bi].parent = Some((false,index));
-        }
-        if let Some(parent) = self.arena[pivot].parent {
-            if parent.0 {
-                self.arena[parent.1].right = Some(pivot);
-                self.arena[parent.1].right_sum = self.node_sum(Some(pivot));
-            }
-            else {
-                self.arena[parent.1].left = Some(pivot);
-                self.arena[parent.1].left_sum = self.node_sum(Some(pivot));
-            }
-        }
-        else {
-            self.root = pivot
-        }
-
-
+        //
+        // self.arena[pivot].parent = self.arena[index].parent;
+        // let baton = self.arena[pivot].right;
+        // self.arena[pivot].right = Some(index);
+        //
+        // self.arena[index].parent = Some((true,pivot));
+        // self.arena[index].left = baton;
+        //
+        // self.arena[index].left_sum = self.node_sum(baton);
+        // self.arena[pivot].right_sum = self.node_sum(Some(index));
+        //
+        // if let Some(bi) = baton {
+        //     self.arena[bi].parent = Some((false,index));
+        // }
+        // if let Some(parent) = self.arena[pivot].parent {
+        //     if parent.0 {
+        //         self.arena[parent.1].right = Some(pivot);
+        //         self.arena[parent.1].right_sum = self.node_sum(Some(pivot));
+        //     }
+        //     else {
+        //         self.arena[parent.1].left = Some(pivot);
+        //         self.arena[parent.1].left_sum = self.node_sum(Some(pivot));
+        //     }
+        // }
+        // else {
+        //     self.root = pivot
+        // }
+        //
+        //
         // eprintln!("I:{:?}",self.arena[index]);
         // eprintln!("P:{:?}",self.arena[pivot]);
         // if let Some(bi) = baton {
@@ -354,41 +481,93 @@ impl<K,V> WeightBalancedSearchTree<K,V>
     }
 
     pub fn unchecked_rotate_left(&mut self,index:usize) {
-
         // eprintln!("Rotating left: {:?}",index);
 
-        let pivot: usize = self.arena[index].right.unwrap();
+        let STNode{key:index_key,left:index_left,right:index_right,parent:index_parent,..} = self.arena[index];
+        let pivot = index_right.unwrap();
+        let pivot_left = self.arena[pivot].left;
+        let pivot_right = self.arena[pivot].right;
 
+        // eprintln!("I{:?}:{:?}",index,self.arena[index]);
+        // eprintln!("P{:?}:{:?}",pivot,self.arena[pivot]);
+
+        self.unlink(index);
+        self.unlink(pivot);
+        if let Some(pli) = pivot_left {
+            self.unlink(pli);
+        }
+        if let Some(pri) = pivot_right {
+            self.unlink(pri)
+        }
+
+        self.arena.swap(index,pivot);
+        self.indecies.swap(index,pivot);
+
+        self.link(Some((false,pivot)),index_left);
+        self.link(Some((true,pivot)),pivot_left);
+        self.link(Some((true,index)),pivot_right);
+        self.link(Some((false,index)),Some(pivot));
+        self.link(index_parent,Some(index));
+
+        // eprintln!("I{:?}:{:?}",index,self.arena[index]);
+        // eprintln!("P{:?}:{:?}",pivot,self.arena[pivot]);
+
+        //
+        // self.arena.swap(index,pivot);
+        // self.indecies.swap(index,pivot);
+        //
+        // self.arena[pivot].parent = Some((false,index));
+        // self.arena[pivot].right = baton;
+        // self.arena[pivot].right_sum = self.node_sum(baton);
+        //
+        // self.arena[index].parent = index_parent;
+        // self.arena[index].left = Some(pivot);
+        // self.arena[index].left_sum = self.node_sum(Some(pivot));
+        //
+        // if let Some(bi) = baton {
+        //     self.arena[bi].parent = Some((true,pivot))
+        // }
+        // if let Some(ili) = index_left {
+        //     self.arena[ili].parent = Some((false,pivot))
+        // }
+        // if let Some(pri) = self.arena[pivot].right {
+        //     self.arena[pri].parent = Some((true,index))
+        // }
+
+        // eprintln!("Rotating left: {:?}",index);
+        //
+        // let pivot: usize = self.arena[index].right.unwrap();
+        //
         // eprintln!("I:{:?}",self.arena[index]);
         // eprintln!("P:{:?}",self.arena[pivot]);
 
-        self.arena[pivot].parent = self.arena[index].parent;
-        let baton = self.arena[pivot].left;
-        self.arena[pivot].left = Some(index);
-
-        self.arena[index].parent = Some((false,pivot));
-        self.arena[index].right = baton;
-
-        self.arena[index].right_sum = self.node_sum(baton);
-        self.arena[pivot].left_sum = self.node_sum(Some(index));
-
-        if let Some(bi) = baton {
-            self.arena[bi].parent = Some((true,index));
-        }
-
-        if let Some(parent) = self.arena[pivot].parent {
-            if parent.0 {
-                self.arena[parent.1].right = Some(pivot);
-                self.arena[parent.1].right_sum = self.node_sum(Some(pivot));
-            }
-            else {
-                self.arena[parent.1].left = Some(pivot);
-                self.arena[parent.1].left_sum = self.node_sum(Some(pivot));
-            }
-        }
-        else {
-            self.root = pivot
-        }
+        // self.arena[pivot].parent = self.arena[index].parent;
+        // let baton = self.arena[pivot].left;
+        // self.arena[pivot].left = Some(index);
+        //
+        // self.arena[index].parent = Some((false,pivot));
+        // self.arena[index].right = baton;
+        //
+        // self.arena[index].right_sum = self.node_sum(baton);
+        // self.arena[pivot].left_sum = self.node_sum(Some(index));
+        //
+        // if let Some(bi) = baton {
+        //     self.arena[bi].parent = Some((true,index));
+        // }
+        //
+        // if let Some(parent) = self.arena[pivot].parent {
+        //     if parent.0 {
+        //         self.arena[parent.1].right = Some(pivot);
+        //         self.arena[parent.1].right_sum = self.node_sum(Some(pivot));
+        //     }
+        //     else {
+        //         self.arena[parent.1].left = Some(pivot);
+        //         self.arena[parent.1].left_sum = self.node_sum(Some(pivot));
+        //     }
+        // }
+        // else {
+        //     self.root = pivot
+        // }
 
         // eprintln!("I:{:?}",self.arena[index]);
         // eprintln!("P:{:?}",self.arena[pivot]);
@@ -401,8 +580,14 @@ impl<K,V> WeightBalancedSearchTree<K,V>
 
     pub fn node_sum(&self,index:Option<usize>) -> K {
         let mut sum = zero();
-        if let Some(&STNode{key,left_sum,right_sum,..}) = index.map(|x| &self.arena[x]) {
-            sum += key + left_sum + right_sum;
+        if let Some(&STNode{key,left,right,left_sum,right_sum,..}) = index.map(|x| &self.arena[x]) {
+            sum += key;
+            if left.is_some() {
+                sum += left_sum;
+            }
+            if right.is_some() {
+                sum += right_sum;
+            }
         }
         sum
     }
@@ -435,11 +620,15 @@ impl<K,V> WeightBalancedSearchTree<K,V>
 
     pub fn balance_weight(&mut self) {
         let root = self.root;
-        self.balance_weight_recursive(Some(root));
+        // eprintln!("{:?}",self);
+        // self.check_integrity();
+        self.balance_weight_recursive(root);
     }
 
     pub fn balance_weight_recursive(&mut self, index_option:Option<usize>) {
         if let Some(index) = index_option {
+            // eprintln!("Recursively balancing:{:?}",index);
+            // eprintln!("{:?}",self.arena[index]);
             let STNode{left,right,..} = self.arena[index];
             self.balance_weight_recursive(left);
             self.balance_weight_recursive(right);
@@ -453,12 +642,16 @@ impl<K,V> WeightBalancedSearchTree<K,V>
         let (rl,rk,rr) = self.node_lkr(right);
         let (ll,lk,lr) = self.node_lkr(left);
         //
+        // eprintln!("{:?}",self);
+        // eprintln!("{:?}",self.arena[index]);
         // eprintln!("{:?}",(ll,lk,lr));
         // eprintln!("{:?}",key);
         // eprintln!("{:?}",(rl,rk,rr));
 
-        let left_shift_tilt = rr - (ll + lk + ll + rl + key);
+        let left_shift_tilt = rr - (ll + lk + lr + rl + key);
         let right_shift_tilt = (rr + rl + rk + key + lr) - ll;
+
+        // eprintln!("{:?},{:?}",left_shift_tilt,right_shift_tilt);
 
         (left_shift_tilt.abs(),right_shift_tilt.abs())
 
@@ -468,10 +661,12 @@ impl<K,V> WeightBalancedSearchTree<K,V>
         // eprintln!("Balancing {:?}",index);
         let mut counter = 0;
         loop {
-            if counter > 1000 {
+            counter += 1;
+            // self.check_integrity();
+            if counter > 5 {
+                // eprintln!("{:?}",self);
                 panic!("Something went pretty wrong, I think! Balancing node for more than 1000 cycles")
             }
-            counter += 1;
             let tilt = self.tilt(index).abs();
             let (left_shift_tilt,right_shift_tilt) = self.check_tilt(index);
             // eprintln!("{:?},{:?},{:?}",left_shift_tilt,tilt,right_shift_tilt);
@@ -481,19 +676,22 @@ impl<K,V> WeightBalancedSearchTree<K,V>
                     self.unchecked_rotate_left(index);
                 }
                 else {
+                    // eprintln!("Rotating right");
                     self.unchecked_rotate_right(index);
                 }
             }
             else {
                 break
             }
+            // eprintln!("{:?}",self.tilt(index));
+            // self.check_integrity();
             // if tilt.abs() > (left_shift_tilt,right_shift_tilt).iter().min() {
             //     if tilt > zero() {
-            //         eprintln!("Rotating left");
+                    eprintln!("Rotating left");
             //         self.unchecked_rotate_left(index)
             //     }
             //     else if tilt <= zero() {
-            //         eprintln!("Rotating right");
+                    eprintln!("Rotating right");
             //         self.unchecked_rotate_right(index)
             //     }
             // }
@@ -502,7 +700,7 @@ impl<K,V> WeightBalancedSearchTree<K,V>
     }
 
     pub fn sum(&self) -> K {
-        self.node_sum(Some(self.root))
+        self.node_sum(self.root)
     }
 
     pub fn children(&self,index:usize) -> Vec<usize> {
@@ -554,27 +752,22 @@ impl<K,V> WeightBalancedSearchTree<K,V>
         self.sample_path_from(k, self.root, zero(), 0)
     }
 
-    pub fn sample_path_from(&self,k:K,i:usize,cumulative:K,depth:usize) -> Vec<(Option<bool>,usize)> {
-        if let Some(&STNode{key,left,right,left_sum,right_sum,..}) = self.arena.get(i) {
-             let path: Vec<(Option<bool>,usize)> = {
+    pub fn sample_path_from(&self,k:K,index_opt:Option<usize>,cumulative:K,depth:usize) -> Vec<(Option<bool>,usize)> {
+        if let Some(i) = index_opt {
+            let STNode{key,left,right,left_sum,right_sum,..} = self.arena[i];
+            let path: Vec<(Option<bool>,usize)> = {
                  if k <= cumulative + left_sum {
-                     let mut path = if let Some(left_index) = left {
-                         self.sample_path_from(k,left_index,cumulative, depth + 1)
-                     }
-                     else {Vec::with_capacity(depth)};
+                     let mut path = self.sample_path_from(k,self.arena[i].left,cumulative, depth + 1);
                      path.push((Some(false),i));
                      path
                 }
-                else if k < (cumulative + left_sum + key) {
+                else if k > (cumulative + left_sum + key) {
                     let mut path = Vec::with_capacity(depth);
                     path.push((None,i));
                     path
                 }
                 else {
-                    let mut path = if let Some(right_index) = right {
-                        self.sample_path_from(k, right_index, cumulative + left_sum + key, depth + 1)
-                    }
-                    else {Vec::with_capacity(depth)};
+                    let mut path = self.sample_path_from(k,self.arena[i].right,cumulative, depth+1);
                     path.push((Some(true),i));
                     path
                 }
@@ -582,14 +775,19 @@ impl<K,V> WeightBalancedSearchTree<K,V>
             };
             path
         }
-        else {vec![]}
+        else {Vec::with_capacity(depth)}
     }
 
     pub fn descend_index(&self,k:K) -> usize {
-        let mut current = self.root;
-        let mut next = Some(self.root);
+        let mut current = self.root.unwrap();
+        let mut next = self.root;
         let mut cumulative: K = zero();
+        let mut counter = 0;
         while let Some(index) = next {
+            counter += 1;
+            if counter > 10000 {
+                panic!("Probably a cycle, descending for more than 10000 steps");
+            }
             let STNode{key,left,right,left_sum,right_sum,..} = self.arena[index];
             let current = index;
             if k <= cumulative + left_sum {
@@ -608,24 +806,46 @@ impl<K,V> WeightBalancedSearchTree<K,V>
 
 
     pub fn remove(&mut self,index:usize) -> Option<(K,V)> {
-        // eprintln!("Removing {:?}",index);
-
-        let last = self.send_to_back(index);
-        let path = self.index_path(last);
-        let key = self.arena[last].key;
-        self.subtract_path(&path, key);
-        let parent = self.arena[last].parent;
-        // eprintln!("Switched");
+        // self.check_integrity();
         // eprintln!("{:?}",self);
-        let mut children = self.unlink_back();
+        // eprintln!("#############################");
+        // eprintln!("#############################");
+        // eprintln!("Removing {:?}",index);
+        // eprintln!("#############################");
+        // eprintln!("#############################");
+        // eprintln!("{:?}",self.arena[index]);
+
+        // let last = self.send_to_back(index);
+        // self.check_integrity();
+
+        let path = self.index_path(index);
+        let STNode{parent,key,value,left_sum,right_sum,..} = self.arena[index];
+        let mut children = self.children(index);
+        // eprintln!("{:?}",children);
+        for &child in &children {
+            self.unlink(child);
+        }
+        // self.subtract_path(&path, key + left_sum + right_sum);
+        self.subtract_path(&path, key);
+        self.unlink(index);
+
+        // let parent = self.arena[last].parent;
+        // eprintln!("Unlinked");
+        // eprintln!("{:?}",self);
+        // eprintln!("Reinserting");
+        // let mut children = self.unlink_back();
         // eprintln!("Switch Remove");
         // eprintln!("{:?}",self);
         if let Some((pb,pi)) = parent {
+            // eprintln!("Reinserting with parents");
+            // eprintln!("{:?}",children);
+            self.establish_node_sums(pi);
             for child in children {
                 self.reinsert_node_at(child, Some(pi))
             }
         }
         else {
+            // eprintln!("Reinserting at root");
             for i in 0..children.len() {
                 self.reinsert_node_at(children[i], children.get(i+1).map(|x| *x));
             }
@@ -633,9 +853,11 @@ impl<K,V> WeightBalancedSearchTree<K,V>
 
         // eprintln!("Inserted children");
         // eprintln!("{:?}",self);
+        //
+        // let value = self.arena.pop().unwrap().value;
+        // self.indecies.pop();
 
-        let value = self.arena.pop().unwrap().value;
-        self.indecies.pop();
+        // self.check_integrity();
 
         // eprintln!("Attempting to balance");
         // eprintln!("{:?}",self);
@@ -647,13 +869,31 @@ impl<K,V> WeightBalancedSearchTree<K,V>
     }
 
     pub fn draw(&mut self) -> Option<(K,V)> {
+        // self.check_integrity();
         let draw: f64 = <f64 as NumCast>::from(self.sum()).unwrap() * random::<f64>();
         self.draw_specified(K::from(draw).unwrap())
     }
 
+    pub fn establish_sums(&mut self) {
+        if let Some(root) = self.root {
+            self.establish_node_sums_recursively(root);
+        }
+    }
+
+    pub fn establish_node_sums_recursively(&mut self,index:usize) {
+        for child in self.children(index) {
+            self.establish_node_sums_recursively(child);
+        }
+        self.establish_node_sums(index);
+    }
+
+    pub fn establish_node_sums(&mut self,index:usize) {
+        self.arena[index].left_sum = self.node_sum(self.arena[index].left);
+        self.arena[index].right_sum = self.node_sum(self.arena[index].right);
+    }
+
     pub fn draw_specified(&mut self,draw:K) -> Option<(K,V)> {
         let path = self.sample_path(draw);
-        // eprintln!("{:?}",path);
         self.remove(path.first().map(|x| x.1).unwrap())
     }
 
@@ -665,6 +905,89 @@ impl<K,V> WeightBalancedSearchTree<K,V>
     pub fn draw_replace_specified(&mut self,draw:K) -> Option<(K,V)> {
         let index = self.descend_index(draw);
         self.arena.get(index).map(|STNode{key,value,..}| (*key,*value))
+    }
+
+    pub fn check_integrity(&self) {
+        if !self.check_weights_recursive(self.root,0) {
+            // eprintln!("{:?}",self);
+            panic!("Invalid weights");
+        }
+        for i in self.rooted_nodes(self.root) {
+            let path_up = self.index_path(i);
+            if path_up.last().map(|x| x.1) != self.root {
+                // eprintln!("{:?}",self);
+                // eprintln!("{:?}",self.rooted_nodes(self.root));
+                // eprintln!("{:?}",self.arena[i]);
+                // eprintln!("{:?}",path_up);
+                // eprintln!("{:?}",i);
+                panic!("Invalid parents");
+            }
+        //     let sum_position: K = path_up.iter().map(|&(b_opt,i)|
+        //         {
+        //             if let Some(b) = b_opt
+        //                 {
+        //                     if b {
+        //                         self.arena[i].left_sum + self.arena[i].key
+        //                     }
+        //                     else {zero()}
+        //                 }
+        //             else {self.arena[i].left_sum + self.arena[i].key}
+        //         })
+        //         .fold(zero(),|mut acc,x| {acc += x; acc});
+        //
+        //     let path_down = self.sample_path(sum_position);
+        //     if path_up.iter().rev().zip(path_down.iter().rev()).any(|(up,down)| up.1 != down.1) {
+        //         // eprintln!("{:?}",self);
+        //         // eprintln!("{:?}",path_up);
+        //         // eprintln!("{:?}",path_down);
+        //         // eprintln!("{:?}",sum_position);
+        //         // eprintln!("{:?}",i);
+        //         panic!("Invalid path");
+        //     }
+        }
+    }
+
+    pub fn check_weights_recursive(&self,index_opt:Option<usize>,counter:usize) -> bool {
+        if counter > 1000 {
+            // eprintln!("{:?}",self);
+            // eprintln!("Current:{:?}",index_opt);
+            panic!("Cycle detected, 1000 recursions through tree checking weight");
+        }
+        let mut valid = true;
+        let mut error = (zero(),zero());
+        if let Some(index) = index_opt {
+            if !self.check_weights_recursive(self.arena[index].left, counter + 1) {
+                valid = false;
+            }
+            if !self.check_weights_recursive(self.arena[index].right, counter + 1) {
+                valid = false;
+            }
+            if (self.node_sum(self.arena[index].left) - self.arena[index].left_sum) > <K as NumCast>::from(0.0001).unwrap() {
+                valid = false;
+                error = (self.node_sum(self.arena[index].left),self.arena[index].left_sum)
+            }
+            if (self.node_sum(self.arena[index].right) - self.arena[index].right_sum) > <K as NumCast>::from(0.0001).unwrap() {
+                valid = false;
+                error = (self.node_sum(self.arena[index].right),self.arena[index].right_sum)
+            }
+        }
+        if !valid {
+            // eprintln!("{:?}",self);
+            // eprintln!("{:?}",index_opt);
+            // eprintln!("{:?}",error);
+            panic!("Invalid weights");
+        }
+        valid
+    }
+
+    pub fn rooted_nodes(&self,index_opt:Option<usize>) -> Vec<usize> {
+        let mut rooted_nodes = vec![];
+        if let Some(index) = index_opt {
+            rooted_nodes.append(&mut self.rooted_nodes(self.arena[index].left));
+            rooted_nodes.append(&mut self.rooted_nodes(self.arena[index].right));
+            rooted_nodes.push(index);
+        }
+        rooted_nodes
     }
 
 }
@@ -702,6 +1025,16 @@ mod tests {
         vec![0,0,0,0,0,0]
     }
 
+    pub fn test_vec_small_random_f64() -> Vec<f64> {
+        let mut rng = thread_rng();
+        (0..10).map(|_| rng.gen::<f64>()).collect()
+    }
+
+    pub fn test_vec_medium_random_f64() -> Vec<f64> {
+        let mut rng = thread_rng();
+        (0..100).map(|_| rng.gen::<f64>()).collect()
+    }
+
     pub fn test_vec_large_random_f64() -> Vec<f64> {
         let mut rng = thread_rng();
         (0..10000).map(|_| rng.gen::<f64>()).collect()
@@ -709,7 +1042,12 @@ mod tests {
 
     pub fn test_vec_large_random_i32() -> Vec<i32> {
         let mut rng = thread_rng();
-        (0..10000).map(|_| rng.gen::<i32>()).collect()
+        (0..10000).map(|_| rng.gen_range::<i32,i32,i32>(0,1000)).collect()
+    }
+
+    pub fn test_vec_small_random_i32() -> Vec<i32> {
+        let mut rng = thread_rng();
+        (0..10).map(|_| rng.gen_range::<i32,i32,i32>(0,1000)).collect()
     }
 
     fn test_vec<K: ValidKey>(test_vec:Vec<K>)
@@ -719,28 +1057,126 @@ mod tests {
         let mut tree = WeightBalancedSearchTree::<K,usize>::index_tree(test_vec.clone());
 
         for _ in test_vec {
-            eprintln!("{:?}",tree.draw());
+            // eprintln!("{:?}",tree.draw());
+        }
+    }
+
+    fn test_vec_replacement<K: ValidKey>(test_vec:Vec<K>)
+    where
+        Standard: Distribution<K>
+    {
+        let mut tree = WeightBalancedSearchTree::<K,usize>::index_tree(test_vec.clone());
+
+        for _ in test_vec {
+            // eprintln!("{:?}",tree.draw_replace());
         }
     }
 
     #[test]
-    pub fn test_all() {
-        let a = test_vec_f64();
-        // let b = test_vec_usize();
-        let c = test_vec_repetitive();
-        let d = test_vec_empty();
-        let e = test_vec_zero();
-        let f = test_vec_large_random_f64();
-        let g = test_vec_large_random_i32();
-
+    pub fn microtest() {
+        let a = vec![1.,2.,3.];
         test_vec(a);
-        // test_vec(b);
-        test_vec(c);
-        test_vec(d);
-        test_vec(e);
-        test_vec(f);
-        test_vec(g);
+    }
 
+    #[test]
+    pub fn minitest() {
+        let a = vec![1.,2.,3.,4.];
+        test_vec(a);
+    }
+
+    #[test]
+    pub fn test_f64() {
+        let a = test_vec_f64();
+        test_vec(a);
+    }
+    // #[test]
+    // pub fn replacement_test_f64() {
+    //     let a = test_vec_f64();
+    //     test_vec_replacement(a);
+    // }
+
+    #[test]
+    pub fn test_repetitive() {
+        let c = test_vec_repetitive();
+        test_vec(c);
+    }
+    #[test]
+    pub fn replacement_test_repetitive() {
+        let c = test_vec_repetitive();
+        test_vec_replacement(c);
+    }
+
+    #[test]
+    pub fn test_empty() {
+        let d = test_vec_empty();
+        test_vec(d);
+    }
+    #[test]
+    pub fn replacement_test_empty() {
+        let d = test_vec_empty();
+        test_vec_replacement(d);
+    }
+
+    #[test]
+    pub fn test_zeros() {
+        let e = test_vec_zero();
+        test_vec(e);
+    }
+    #[test]
+    pub fn replacement_test_zeros() {
+        let e = test_vec_zero();
+        test_vec_replacement(e);
+    }
+
+    #[test]
+    pub fn test_small_random_f64() {
+        let f = test_vec_small_random_f64();
+        test_vec(f);
+    }
+    #[test]
+    pub fn replacement_test_small_random_f64() {
+        let f = test_vec_small_random_f64();
+        test_vec_replacement(f);
+    }
+
+    #[test]
+    pub fn test_medium_random_f64() {
+        let g = test_vec_medium_random_f64();
+        test_vec(g);
+    }
+    #[test]
+    pub fn replacement_test_medium_random_f64() {
+        let g = test_vec_medium_random_f64();
+        test_vec_replacement(g);
+    }
+
+    #[test]
+    pub fn test_large_random_f64() {
+        let h = test_vec_large_random_f64();
+        test_vec(h);
+    }
+    #[test]
+    pub fn replacement_test_large_random_f64() {
+        let h = test_vec_large_random_f64();
+        test_vec_replacement(h);
+    }
+
+    #[test]
+    pub fn test_small_random_i32() {
+        let i = test_vec_small_random_i32();
+        test_vec(i);
+    }
+
+    #[test]
+    pub fn test_large_random_i32() {
+        let i = test_vec_large_random_i32();
+        test_vec(i);
+    }
+    #[test]
+
+    pub fn replacement_test_large_random_i32() {
+        let i = test_vec_large_random_i32();
+        test_vec_replacement(i);
     }
 
 
