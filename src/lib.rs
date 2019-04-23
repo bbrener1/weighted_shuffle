@@ -8,18 +8,19 @@ use std::convert::From;
 use std::mem::swap;
 use std::fmt::Debug;
 use std::cmp::min;
-use rand::random;
+use rand::{random,thread_rng,Rng};
+use rand::rngs::{ThreadRng};
 use rand::distributions::{Distribution,Standard};
 
-#[derive(Debug)]
-pub struct WeightBalancedSearchTree<K,V> {
+#[derive(Debug,Clone)]
+pub struct WBST<K,V> where K:Clone,V:Clone {
     root: Option<usize>,
     arena: Vec<STNode<K,V>>,
     indecies: Vec<usize>,
 }
 
-#[derive(Debug)]
-struct STNode<K,V> {
+#[derive(Debug,Clone)]
+struct STNode<K,V> where K:Clone,V:Clone {
         parent: Option<(bool,usize)>,
         key: K,
         value: V,
@@ -29,7 +30,7 @@ struct STNode<K,V> {
         right:Option<usize>,
 }
 
-impl<K: Zero,V> STNode<K,V> {
+impl<K: Zero + Clone,V: Clone> STNode<K,V> {
     pub fn new(k:K,v:V) -> STNode<K,V> {
         STNode {
             parent: None,
@@ -65,17 +66,17 @@ impl<K: Zero,V> STNode<K,V> {
 //     }
 // }
 
-impl<K,V> WeightBalancedSearchTree<K,V>
+impl<K,V> WBST<K,V>
     where
         K: PartialOrd + Sub<K,Output=K> + Add<K,Output=K> + AddAssign<K> + SubAssign<K> + ToPrimitive + NumCast + Zero + Signed + Copy + Debug,
         V: Debug + Copy,
         Standard: Distribution<K>,
 {
 
-    pub fn index_tree(weights:Vec<K>) -> WeightBalancedSearchTree<K,usize> {
-        let mut tree = WeightBalancedSearchTree::empty();
+    pub fn index_tree(weights:&Vec<K>) -> WBST<K,usize> {
+        let mut tree = WBST::empty();
         // eprintln!("{:?}",tree);
-        for (v,k) in weights.into_iter().enumerate() {
+        for (v,&k) in weights.into_iter().enumerate() {
             // eprintln!("{:?}",tree);
             tree.insert(k, v)
         }
@@ -85,8 +86,8 @@ impl<K,V> WeightBalancedSearchTree<K,V>
 
     }
 
-    pub fn empty() -> WeightBalancedSearchTree<K,V> {
-        WeightBalancedSearchTree{
+    pub fn empty() -> WBST<K,V> {
+        WBST{
             root:None,
             arena:vec![],
             indecies: vec![],
@@ -687,11 +688,11 @@ impl<K,V> WeightBalancedSearchTree<K,V>
             // self.check_integrity();
             // if tilt.abs() > (left_shift_tilt,right_shift_tilt).iter().min() {
             //     if tilt > zero() {
-                    eprintln!("Rotating left");
+                    // eprintln!("Rotating left");
             //         self.unchecked_rotate_left(index)
             //     }
             //     else if tilt <= zero() {
-                    eprintln!("Rotating right");
+                    // eprintln!("Rotating right");
             //         self.unchecked_rotate_right(index)
             //     }
             // }
@@ -784,12 +785,14 @@ impl<K,V> WeightBalancedSearchTree<K,V>
         let mut cumulative: K = zero();
         let mut counter = 0;
         while let Some(index) = next {
+            // eprintln!("CR:{:?}",current);
+            // eprintln!("CU:{:?}",cumulative);
             counter += 1;
             if counter > 10000 {
                 panic!("Probably a cycle, descending for more than 10000 steps");
             }
             let STNode{key,left,right,left_sum,right_sum,..} = self.arena[index];
-            let current = index;
+            current = index;
             if k <= cumulative + left_sum {
                  next = left
             }
@@ -800,6 +803,7 @@ impl<K,V> WeightBalancedSearchTree<K,V>
             else {
                 break
             }
+            // eprintln!("NN:{:?}",next);
         }
         current
     }
@@ -868,10 +872,28 @@ impl<K,V> WeightBalancedSearchTree<K,V>
         Some((key,value))
     }
 
+    pub fn draw_index(&mut self, index:usize) -> Option<(K,V)> {
+        self.remove(index)
+    }
+
     pub fn draw(&mut self) -> Option<(K,V)> {
         // self.check_integrity();
-        let draw: f64 = <f64 as NumCast>::from(self.sum()).unwrap() * random::<f64>();
-        self.draw_specified(K::from(draw).unwrap())
+        let mut rng = thread_rng();
+        self.draw_rng(&mut rng)
+    }
+
+    pub fn draw_rng(&mut self,rng:&mut ThreadRng) -> Option<(K,V)> {
+
+        if self.sum() > zero() {
+            let draw: f64 = <f64 as NumCast>::from(self.sum()).unwrap() * random::<f64>();
+            self.draw_specified(K::from(draw).unwrap())
+        }
+        else {
+            None
+            // let mut rng = thread_rng();
+            // let draw_index = rng.gen_range(0,self.rooted_nodes(self.root).len());
+            // self.draw_index(draw_index)
+        }
     }
 
     pub fn establish_sums(&mut self) {
@@ -898,30 +920,44 @@ impl<K,V> WeightBalancedSearchTree<K,V>
     }
 
     pub fn draw_replace(&mut self) -> Option<(K,V)> {
-        let draw: f64 = <f64 as NumCast>::from(self.sum()).unwrap() * random::<f64>();
-        self.draw_replace_specified(K::from(draw).unwrap())
+        let mut rng = thread_rng();
+        self.draw_replace_rng(&mut rng)
     }
 
-    pub fn draw_replace_specified(&mut self,draw:K) -> Option<(K,V)> {
+    pub fn draw_replace_rng(&self,rng:&mut ThreadRng) -> Option<(K,V)> {
+        if self.sum() > zero() {
+            let draw: f64 = <f64 as NumCast>::from(self.sum()).unwrap() * random::<f64>();
+            // eprintln!("RN:{:?}",<f64 as NumCast>::from(self.sum()).unwrap());
+            // eprintln!("RR:{:?}",draw);
+            self.draw_replace_specified(K::from(draw).unwrap())
+        }
+        else {
+            None
+            // let draw_index = rng.gen_range(0,self.rooted_nodes(self.root).len());
+            // self.arena.get(draw_index).map(|STNode{key,value,..}| (*key,*value))
+        }
+    }
+
+    pub fn draw_replace_specified(&self,draw:K) -> Option<(K,V)> {
         let index = self.descend_index(draw);
         self.arena.get(index).map(|STNode{key,value,..}| (*key,*value))
     }
 
     pub fn check_integrity(&self) {
-        if !self.check_weights_recursive(self.root,0) {
-            // eprintln!("{:?}",self);
-            panic!("Invalid weights");
-        }
-        for i in self.rooted_nodes(self.root) {
-            let path_up = self.index_path(i);
-            if path_up.last().map(|x| x.1) != self.root {
-                // eprintln!("{:?}",self);
-                // eprintln!("{:?}",self.rooted_nodes(self.root));
-                // eprintln!("{:?}",self.arena[i]);
-                // eprintln!("{:?}",path_up);
-                // eprintln!("{:?}",i);
-                panic!("Invalid parents");
-            }
+        // if !self.check_weights_recursive(self.root,0) {
+        //     // eprintln!("{:?}",self);
+        //     panic!("Invalid weights");
+        // }
+        // for i in self.rooted_nodes(self.root) {
+        //     let path_up = self.index_path(i);
+        //     if path_up.last().map(|x| x.1) != self.root {
+        //         // eprintln!("{:?}",self);
+        //         // eprintln!("{:?}",self.rooted_nodes(self.root));
+        //         // eprintln!("{:?}",self.arena[i]);
+        //         // eprintln!("{:?}",path_up);
+        //         // eprintln!("{:?}",i);
+        //         panic!("Invalid parents");
+        //     }
         //     let sum_position: K = path_up.iter().map(|&(b_opt,i)|
         //         {
         //             if let Some(b) = b_opt
@@ -944,7 +980,7 @@ impl<K,V> WeightBalancedSearchTree<K,V>
         //         // eprintln!("{:?}",i);
         //         panic!("Invalid path");
         //     }
-        }
+        // }
     }
 
     pub fn check_weights_recursive(&self,index_opt:Option<usize>,counter:usize) -> bool {
@@ -1054,7 +1090,7 @@ mod tests {
     where
         Standard: Distribution<K>
     {
-        let mut tree = WeightBalancedSearchTree::<K,usize>::index_tree(test_vec.clone());
+        let mut tree = WBST::<K,usize>::index_tree(&test_vec);
 
         for _ in test_vec {
             // eprintln!("{:?}",tree.draw());
@@ -1065,7 +1101,7 @@ mod tests {
     where
         Standard: Distribution<K>
     {
-        let mut tree = WeightBalancedSearchTree::<K,usize>::index_tree(test_vec.clone());
+        let mut tree = WBST::<K,usize>::index_tree(&test_vec);
 
         for _ in test_vec {
             // eprintln!("{:?}",tree.draw_replace());
